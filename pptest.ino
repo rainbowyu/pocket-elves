@@ -98,6 +98,7 @@ unsigned char DEC_FLAG = 0;						//减速开启 标志位
 unsigned char ACC_FLAG = 0;						//减速开启 标志位
 unsigned char TIMER_FLAG = 0;						//定时开启 标志位
 unsigned char CMD_FLAG=0;							//接收到串口控制标志位
+unsigned char LINE_FLAG=0;							//巡线开启 标志位
 
 typedef unsigned int uint_16;
 typedef unsigned char uint_8;
@@ -292,6 +293,8 @@ unsigned char getCmd(unsigned char *serialcmd)
 
 		case GET_STATE:return GET_STATE;break;
 		case GET_ENERGY:return GET_ENERGY;break;
+		
+		case LINE:return LINE;break;
 
 		case SET_IR_THRESHOLD:return SET_IR_THRESHOLD;break;
 
@@ -455,10 +458,13 @@ void loop(void)
 		for (int i=0;i<2;i++)serialCmd[i]=Serial.read();
 		CMD=getCmd(serialCmd);
 	}
-	if(CMD<14||CMD==END)
-	{
 		switch (CMD)
 		{
+			case LINE:
+			if (CMD_FLAG)
+			{
+				LINE_FLAG=1;
+			}
 			case FORWARD :
 			if (CMD_FLAG)
 			{
@@ -628,7 +634,6 @@ void loop(void)
 
 			default:break;
 		}
-	}
 	if (sensorMetro.check()== 1)
 	{
 		sensorState.BTN=getSwitch();
