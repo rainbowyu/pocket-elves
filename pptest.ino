@@ -1,5 +1,5 @@
 //改为miniQ平台
-
+#include <Adafruit_NeoPixel.h>
 #include <Metro.h> //Include Metro library
 #include <SoftwareSerial.h>
 #include <DFPlayer_Mini_Mp3.h>
@@ -14,6 +14,8 @@
 #define M2 4     //右侧电机方向
 
 #define CARID 0
+
+#define LED_NUM 6
 
 //小车控制宏定义
 #define END 255
@@ -37,9 +39,11 @@
 #define MP3_MUSIC 61
 #define MP3_VALUE 62
 //LED灯：
-#define LED1COLOR 71
-//(00关,01开)
-#define LED2COLOR 72
+#define LEDCONTROL 71 
+//(0xff代表控制所有8个灯)
+#define LEDCOLOR 72
+#define LEDTIME 73
+//#define LED2COLOR 72
 //(00关,01开)
 
 //小车定时：
@@ -93,6 +97,8 @@
 #define STATE_RIGHT  34			//运动状态 右转
 #define STATE_STOP 35				//运动状态 停止
 
+#define PIN 13
+
 //小车控制标志位
 unsigned char DEC_FLAG = 0;						//减速开启 标志位
 unsigned char ACC_FLAG = 0;						//减速开启 标志位
@@ -111,7 +117,8 @@ unsigned char serialCmd[2];							//串口命令缓存
 Metro TimerMetro = Metro(250);									
 Metro ACCMetro =Metro(ACC_TIME/SPEED_MAX);
 Metro DECMetro =Metro(DEC_TIME/SPEED_MAX);
-Metro sensorMetro = Metro(1000);
+Metro sensorMetro = Metro(20);
+Metro LEDMetro[LED_NUM]=Metro(20);
 
 unsigned char CMD=0;
 
@@ -120,11 +127,32 @@ unsigned char carSpeed=0;
 unsigned char IR_count=0;
 unsigned char accMaxSpeed=0;
 unsigned char decMaxSpeed=0;
+unsigned char ledColor[LED_NUM]={};
 
 unsigned char BLACKVALUE=300;                   //默认黑色阈值 30*10
 
 unsigned char timerMusic=1;                          //默认闹钟音乐
 SoftwareSerial mySerial(2, 11); // RX, TX
+
+
+// Parameter 1 = number of pixels in strip
+// Parameter 2 = pin number (most are valid)
+// Parameter 3 = pixel type flags, add together as needed:
+//   NEO_RGB     Pixels are wired for RGB bitstream
+//   NEO_GRB     Pixels are wired for GRB bitstream
+//   NEO_KHZ400  400 KHz bitstream (e.g. FLORA pixels)
+//   NEO_KHZ800  800 KHz bitstream (e.g. High Density LED strip)
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(LED_NUM , PIN, NEO_GRB + NEO_KHZ800);
+
+// Fill the dots one after the other with a color
+void colorWipe(uint32_t c, uint8_t wait) 
+{
+  for(uint16_t i=0; i<strip.numPixels(); i++) {
+      strip.setPixelColor(i, c);
+      strip.show();
+      delay(wait);
+  }
+}
 
 //小车状态结构体
 struct carCon
@@ -144,6 +172,30 @@ struct sensor
 	unsigned char COLOR_pre[5];
 };
 struct sensor sensorState;
+
+//led颜色结构体 存储小车颜色
+struct color
+{
+	int RED;
+	int GREEN;
+	int BLUE;
+} ;
+
+struct colorChange
+{
+	int REDChange;
+	int GREENChange;
+	int BLUEChange;
+} ;
+
+const struct color ConstColor[3] =
+{
+	{255,0,0},
+	{0,255,0},
+	{0,0,255}
+};
+struct color LED_Color[LED_NUM];
+struct colorChange LED_Color_Change[LED_NUM];
 
 //停止
 void stop(void)
@@ -199,6 +251,18 @@ void ledControl(unsigned char position,unsigned char con)
 	}
 }
 
+void ledLoop()
+{
+	    // for(i=0; i< strip.numPixels(); i++) 
+		// {
+			// strip.setPixelColor(i, Wheel(((i * 256 / strip.numPixels()) + j) & 255));
+		// }
+    strip.show();
+	 colorWipe(strip.Color(255, 0, 0), 50); // Red
+	 colorWipe(strip.Color(0, 255, 0), 50); // Green
+	 colorWipe(strip.Color(0, 0, 255), 50); // Blue
+}
+
 //MP3播放函数
 
 void changeMusic(int i)
@@ -242,6 +306,8 @@ int carInit(struct carCon *car1)
 	}
 	pinMode(8,INPUT);			//IR接收口
 	Serial.begin(115200);		//设置串口波特率
+	strip.begin();
+	strip.show(); // Initialize all pixels to 'off'
 	PCICR=0x01;
 	PCMSK0=0x01;               	//使能第0组引脚变化中断
 #ifdef DEBUG
@@ -285,8 +351,17 @@ unsigned char getCmd(unsigned char *serialcmd)
 		case MP3_MUSIC:changeMusic(serialCmd[1]);return SOUND_CHANGE;break;
 		case MP3_VALUE:changeMusicValue((serialCmd[1]*30)/100);return SOUND_CHANGE;break;
 
-		case LED1COLOR:ledControl(LEFT,serialCmd[1]);return LED_CHANGE;break;
-		case LED2COLOR:ledControl(RIGHT,serialCmd[1]);return LED_CHANGE;break;
+		case LEDCONTROL:LED_Control=serialCmd[1];return LED_CHANGE;break;
+		case LED2COLOR:
+		for (int i=0;i<LED_NUM;i++)
+		{
+			if (((LED_Control>>i)&(0x01))==1)
+			{
+				
+			}
+		}
+		
+		ledControl(RIGHT,serialCmd[1]);return LED_CHANGE;break;
 
 		case TIMER_SET:timerSet(serialCmd[1]);return TIMER_CHANGE;break;
 		case TIMER_CANCEL:timerChangeMusic(serialCmd[1]);return TIMER_CHANGE;break;
@@ -453,6 +528,7 @@ void setup(void)
 
 void loop(void)
 {
+//	ledLoop();
 	if(Serial.available()>1)
 	{
 		for (int i=0;i<2;i++)serialCmd[i]=Serial.read();
@@ -810,6 +886,15 @@ void loop(void)
 		{
 			if (carSpeed>0)carSpeed--;
 			else DEC_FLAG=0;
+		}
+	}
+	for (int x;x<LED_NUM;x++)
+	{
+		if (LEDMetro[x].check()==1)
+		{
+			LED_Color[x].RED+=LED_Color_Change[x].REDChange;
+			LED_Color[x].GREEN+=LED_Color_Change[x].GREENChange;
+			LED_Color[x].BLUE+=LED_Color_Change[x].BLUEChange;
 		}
 	}
 }
