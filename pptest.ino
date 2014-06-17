@@ -251,6 +251,13 @@ void ledControl(unsigned char position,unsigned char con)
 	}
 }
 
+void ledChangeColor(unsigned num)
+{
+	LED_Color_Change[num].REDChange=
+	LED_Color_Change[num].GREENChange=
+	LED_Color_Change[num].BLUEChange=
+}
+
 void ledLoop()
 {
 	    // for(i=0; i< strip.numPixels(); i++) 
@@ -357,12 +364,12 @@ unsigned char getCmd(unsigned char *serialcmd)
 		{
 			if (((LED_Control>>i)&(0x01))==1)
 			{
-				
+				LED_Color[i]=serialCmd[1];
 			}
-		}
+		}		
+		return LED_CHANGE;break;
+		case LEDTIME:ledChangeColor();return LEDTIME;break;
 		
-		ledControl(RIGHT,serialCmd[1]);return LED_CHANGE;break;
-
 		case TIMER_SET:timerSet(serialCmd[1]);return TIMER_CHANGE;break;
 		case TIMER_CANCEL:timerChangeMusic(serialCmd[1]);return TIMER_CHANGE;break;
 
