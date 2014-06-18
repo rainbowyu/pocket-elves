@@ -6,6 +6,7 @@
 
 
 //#define DEBUG
+//#define DEBUGLEDSTRIP
 //#define DEBUGIR
 //Standard PWM DC control
 #define E1 6     //左侧电机使能
@@ -128,6 +129,7 @@ unsigned char IR_count=0;
 unsigned char accMaxSpeed=0;
 unsigned char decMaxSpeed=0;
 unsigned char ledColor[LED_NUM]={};
+unsigned char LED_Control=0;
 
 unsigned char BLACKVALUE=300;                   //默认黑色阈值 30*10
 
@@ -145,14 +147,14 @@ SoftwareSerial mySerial(2, 11); // RX, TX
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(LED_NUM , PIN, NEO_GRB + NEO_KHZ800);
 
 // Fill the dots one after the other with a color
-void colorWipe(uint32_t c, uint8_t wait) 
-{
-  for(uint16_t i=0; i<strip.numPixels(); i++) {
-      strip.setPixelColor(i, c);
-      strip.show();
-      delay(wait);
-  }
-}
+// void colorWipe(uint32_t c, uint8_t wait) 
+// {
+  // for(uint16_t i=0; i<strip.numPixels(); i++) {
+      // strip.setPixelColor(i, c);
+      // strip.show();
+      // delay(wait);
+  // }
+// }
 
 //小车状态结构体
 struct carCon
@@ -188,11 +190,15 @@ struct colorChange
 	int BLUEChange;
 } ;
 
-const struct color ConstColor[3] =
+const struct color ConstColor[7] =
 {
 	{255,0,0},
+	{255,165,0},
+	{255,255,0},
 	{0,255,0},
-	{0,0,255}
+	{0,127,255},
+	{0,0,255},
+	{139,0,255}
 };
 struct color LED_Color[LED_NUM];
 struct colorChange LED_Color_Change[LED_NUM];
@@ -241,33 +247,35 @@ void turnR (unsigned char a,unsigned char b)
 
 //led控制函数
 
-void ledControl(unsigned char position,unsigned char con)
-{
-	switch (position)
-	{
-		case LEFT:digitalWrite(12,con);break;
-		case RIGHT:digitalWrite(13,con);break;
-		default:break;
-	}
-}
-
-void ledChangeColor(unsigned num)
-{
-	LED_Color_Change[num].REDChange=
-	LED_Color_Change[num].GREENChange=
-	LED_Color_Change[num].BLUEChange=
-}
-
 void ledLoop()
 {
-	    // for(i=0; i< strip.numPixels(); i++) 
-		// {
-			// strip.setPixelColor(i, Wheel(((i * 256 / strip.numPixels()) + j) & 255));
-		// }
-    strip.show();
-	 colorWipe(strip.Color(255, 0, 0), 50); // Red
-	 colorWipe(strip.Color(0, 255, 0), 50); // Green
-	 colorWipe(strip.Color(0, 0, 255), 50); // Blue
+	for (unsigned char i=0;i<LED_NUM;i++)
+	{
+		strip.setPixelColor(i, strip.Color(LED_Color[i].RED, LED_Color[i].GREEN, LED_Color[i].BLUE));
+	}
+	strip.show();
+}
+
+void ledChangeColor(unsigned char time)
+{
+	for (int num=0;num<LED_NUM;num++)
+	{
+		if (((LED_Control>>num)&(0x01))==1)
+		{
+			LED_Color_Change[num].REDChange=(int)((ConstColor[ledColor[num]].RED-LED_Color[num].RED)/time);                //dont used the float to decrease the time 
+			LED_Color_Change[num].GREENChange=(int)((ConstColor[ledColor[num]].GREEN-LED_Color[num].GREEN)/time);
+			LED_Color_Change[num].BLUEChange=(int)((ConstColor[ledColor[num]].BLUE-LED_Color[num].BLUE)/time);
+#ifdef DEBUGLEDSTRIP
+			Serial.print("LED");
+			Serial.print(num);
+			Serial.print(" ");
+			Serial.println(LED_Color_Change[num].REDChange);
+			Serial.println(LED_Color_Change[num].GREENChange);
+			Serial.println(LED_Color_Change[num].BLUEChange);
+#endif
+		}
+	}	
+
 }
 
 //MP3播放函数
@@ -358,17 +366,17 @@ unsigned char getCmd(unsigned char *serialcmd)
 		case MP3_MUSIC:changeMusic(serialCmd[1]);return SOUND_CHANGE;break;
 		case MP3_VALUE:changeMusicValue((serialCmd[1]*30)/100);return SOUND_CHANGE;break;
 
-		case LEDCONTROL:LED_Control=serialCmd[1];return LED_CHANGE;break;
-		case LED2COLOR:
+		case LEDCONTROL:LED_Control=serialCmd[1];return LEDCONTROL;break;
+		case LEDCOLOR:
 		for (int i=0;i<LED_NUM;i++)
 		{
 			if (((LED_Control>>i)&(0x01))==1)
 			{
-				LED_Color[i]=serialCmd[1];
+				ledColor[i]=constrain(serialCmd[1], 0, 6);
 			}
 		}		
-		return LED_CHANGE;break;
-		case LEDTIME:ledChangeColor();return LEDTIME;break;
+		return LEDCOLOR;break;
+		case LEDTIME:ledChangeColor(serialCmd[1]);return LEDTIME;break;
 		
 		case TIMER_SET:timerSet(serialCmd[1]);return TIMER_CHANGE;break;
 		case TIMER_CANCEL:timerChangeMusic(serialCmd[1]);return TIMER_CHANGE;break;
@@ -535,7 +543,8 @@ void setup(void)
 
 void loop(void)
 {
-//	ledLoop();
+	int a[3];
+	ledLoop();
 	if(Serial.available()>1)
 	{
 		for (int i=0;i<2;i++)serialCmd[i]=Serial.read();
@@ -543,6 +552,8 @@ void loop(void)
 	}
 		switch (CMD)
 		{
+			case LEDTIME:
+			break;
 			case LINE:
 			if (CMD_FLAG)
 			{
@@ -899,9 +910,38 @@ void loop(void)
 	{
 		if (LEDMetro[x].check()==1)
 		{
-			LED_Color[x].RED+=LED_Color_Change[x].REDChange;
-			LED_Color[x].GREEN+=LED_Color_Change[x].GREENChange;
-			LED_Color[x].BLUE+=LED_Color_Change[x].BLUEChange;
+			if (	(LED_Color_Change[x].REDChange>0&&LED_Color[x].RED<ConstColor[ledColor[x]].RED)	||
+					(LED_Color_Change[x].REDChange<0&&LED_Color[x].RED>ConstColor[ledColor[x]].RED)	)
+			{
+				a[0] = LED_Color[x].RED+LED_Color_Change[x].REDChange;
+				LED_Color[x].RED = constrain(a[0], 0, 255);
+#ifdef DEBUGLEDSTRIP
+			Serial.print("LED RED");
+			Serial.print(x);
+			Serial.print(" ");
+			Serial.println(LED_Color[x].RED);
+#endif
+			}
+			if (	(LED_Color_Change[x].GREENChange>0&&LED_Color[x].GREEN<ConstColor[ledColor[x]].GREEN)	||
+					(LED_Color_Change[x].GREENChange<0&&LED_Color[x].GREEN>ConstColor[ledColor[x]].GREEN)	)
+			{					
+				a[1]= LED_Color[x].GREEN+LED_Color_Change[x].GREENChange;
+				LED_Color[x].GREEN = constrain(a[1], 0, 255);
+#ifdef DEBUGLEDSTRIP
+			Serial.print("LED GREEN");
+			Serial.print(x);
+			Serial.print(" ");
+			Serial.println(LED_Color_Change[x].GREENChange);
+			Serial.println(LED_Color[x].GREEN);
+#endif
+			}
+			if (	(LED_Color_Change[x].BLUEChange>0&&LED_Color[x].BLUE<ConstColor[ledColor[x]].BLUE)	||
+					(LED_Color_Change[x].BLUEChange<0&&LED_Color[x].BLUE>ConstColor[ledColor[x]].BLUE)	)
+			{
+				a[2] = LED_Color[x].BLUE+LED_Color_Change[x].BLUEChange;
+				LED_Color[x].BLUE = constrain(a[2], 0, 255);
+			}
+			
 		}
 	}
 }
