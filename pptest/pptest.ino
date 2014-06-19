@@ -1,6 +1,6 @@
 //改为miniQ平台
 #include <Adafruit_NeoPixel.h>
-#include <Metro.h> //Include Metro library
+#include <Metro.h> 						//Include Metro library
 #include <SoftwareSerial.h>
 #include <DFPlayer_Mini_Mp3.h>
 
@@ -8,6 +8,7 @@
 //#define DEBUG
 //#define DEBUGLEDSTRIP
 //#define DEBUGIR
+
 //Standard PWM DC control
 #define E1 6     //左侧电机使能
 #define E2 5     //右侧电机使能
@@ -23,7 +24,7 @@
 #define STOP 0								//停止
 #define FORWARD 1						//前进+200	速度200
 #define BACKWARD 2					//后退+200	速度200
-#define TURN_LEFT 3					//左转+200	速度200
+#define TURN_LEFT 3						//左转+200	速度200
 #define TURN_RIGHT 4					//右转+200	速度200
 #define ACC_FORWARD 5				//加速前进+200	速度200
 #define DEC_FORWARD 6				//减速前进+200	速度200
@@ -44,7 +45,6 @@
 //(0xff代表控制所有8个灯)
 #define LEDCOLOR 72
 #define LEDTIME 73
-//#define LED2COLOR 72
 //(00关,01开)
 
 //小车定时：
@@ -115,26 +115,26 @@ typedef int int_16;
 unsigned char serialCmd[2];							//串口命令缓存
 
 //各种metro声明
-Metro TimerMetro = Metro(250);									
-Metro ACCMetro =Metro(ACC_TIME/SPEED_MAX);
-Metro DECMetro =Metro(DEC_TIME/SPEED_MAX);
+Metro timerMetro = Metro(250);									
+Metro accMetro =Metro(ACC_TIME/SPEED_MAX);
+Metro decMetro =Metro(DEC_TIME/SPEED_MAX);
 Metro sensorMetro = Metro(20);
-Metro LEDMetro[LED_NUM]=Metro(20);
+Metro ledMetro[LED_NUM]=Metro(20);
 
 unsigned char CMD=0;
 
 
 unsigned char carSpeed=0;
-unsigned char IR_count=0;
+unsigned char irCount=0;
 unsigned char accMaxSpeed=0;
 unsigned char decMaxSpeed=0;
 unsigned char ledColor[LED_NUM]={};
-unsigned char LED_Control=0;
+unsigned char ledControl=0;
 
-unsigned char BLACKVALUE=300;                   //默认黑色阈值 30*10
+unsigned char blackValue=300;					//默认黑色阈值 30*10
 
-unsigned char timerMusic=1;                          //默认闹钟音乐
-SoftwareSerial mySerial(2, 11); // RX, TX
+unsigned char timerMusic=1;						//默认闹钟音乐
+SoftwareSerial mySerial(2, 11);					// RX, TX
 
 
 // Parameter 1 = number of pixels in strip
@@ -145,16 +145,6 @@ SoftwareSerial mySerial(2, 11); // RX, TX
 //   NEO_KHZ400  400 KHz bitstream (e.g. FLORA pixels)
 //   NEO_KHZ800  800 KHz bitstream (e.g. High Density LED strip)
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(LED_NUM , PIN, NEO_GRB + NEO_KHZ800);
-
-// Fill the dots one after the other with a color
-// void colorWipe(uint32_t c, uint8_t wait) 
-// {
-  // for(uint16_t i=0; i<strip.numPixels(); i++) {
-      // strip.setPixelColor(i, c);
-      // strip.show();
-      // delay(wait);
-  // }
-// }
 
 //小车状态结构体
 struct carCon
@@ -168,46 +158,41 @@ struct carCon car;
 //传感器状态结构体
 struct sensor
 {
-	unsigned char BTN_pre;
-	unsigned char BTN;
-	unsigned char COLOR[5];
-	unsigned char COLOR_pre[5];
+	unsigned char btnPre;
+	unsigned char btn;
+	unsigned char color[5];
+	unsigned char colorPre[5];
 };
 struct sensor sensorState;
 
 //led颜色结构体 存储小车颜色
 struct color
 {
-	int RED;
-	int GREEN;
-	int BLUE;
+	int red;
+	int green;
+	int blue;
 } ;
 
 struct colorChange
 {
-	int REDChange;
-	int GREENChange;
-	int BLUEChange;
+	int redChange;
+	int greenChange;
+	int blueChange;
 } ;
 
-const struct color ConstColor[7] =
+const struct color constColor[8] =
 {
-	{255,0,0},
-	{255,165,0},
-	{255,255,0},
-	{0,255,0},
-	{0,127,255},
-	{0,0,255},
-	{139,0,255}
+	{0,0,0},									//关
+	{25500,0,0},								//赤
+	{25500,165,0},							//橙
+	{25500,25500,0},						//黄
+	{0,25500,0},								//绿
+	{0,127,25500},							//青
+	{0,0,25500},								//蓝
+	{13900,0,25500}						//紫
 };
 struct color LED_Color[LED_NUM];
-struct colorChange LED_Color_Change[LED_NUM];
-
-//停止
-void stop(void)
-{
-	forward(0,0);
-}
+struct colorChange ledColorChange[LED_NUM];
 
 //前进
 void forward(unsigned char a,unsigned char b)
@@ -216,6 +201,12 @@ void forward(unsigned char a,unsigned char b)
 	digitalWrite(M1,HIGH);
 	analogWrite (E2,b);
 	digitalWrite(M2,HIGH);
+}
+
+//停止
+void stop(void)
+{
+	forward(0,0);
 }
 
 //后退
@@ -251,7 +242,7 @@ void ledLoop()
 {
 	for (unsigned char i=0;i<LED_NUM;i++)
 	{
-		strip.setPixelColor(i, strip.Color(LED_Color[i].RED, LED_Color[i].GREEN, LED_Color[i].BLUE));
+		strip.setPixelColor(i, strip.Color(LED_Color[i].red/100, LED_Color[i].green/100, LED_Color[i].blue/100));					//set every led‘s color
 	}
 	strip.show();
 }
@@ -260,22 +251,31 @@ void ledChangeColor(unsigned char time)
 {
 	for (int num=0;num<LED_NUM;num++)
 	{
-		if (((LED_Control>>num)&(0x01))==1)
+		if (((ledControl>>num)&(0x01))==1)
 		{
-			LED_Color_Change[num].REDChange=(int)((ConstColor[ledColor[num]].RED-LED_Color[num].RED)/time);                //dont used the float to decrease the time 
-			LED_Color_Change[num].GREENChange=(int)((ConstColor[ledColor[num]].GREEN-LED_Color[num].GREEN)/time);
-			LED_Color_Change[num].BLUEChange=(int)((ConstColor[ledColor[num]].BLUE-LED_Color[num].BLUE)/time);
+			if (time ==0 ) time=1;
+			ledColorChange[num].redChange=(int)((constColor[ledColor[num]].red-LED_Color[num].red)/time);                //dont used the float to decrease the time 
+			ledColorChange[num].greenChange=(int)((constColor[ledColor[num]].green-LED_Color[num].green)/time);
+			ledColorChange[num].blueChange=(int)((constColor[ledColor[num]].blue-LED_Color[num].blue)/time);
 #ifdef DEBUGLEDSTRIP
 			Serial.print("LED");
 			Serial.print(num);
 			Serial.print(" ");
-			Serial.println(LED_Color_Change[num].REDChange);
-			Serial.println(LED_Color_Change[num].GREENChange);
-			Serial.println(LED_Color_Change[num].BLUEChange);
+			Serial.println(ledColorChange[num].redChange);
+			Serial.println(ledColorChange[num].greenChange);
+			Serial.println(ledColorChange[num].blueChange);
 #endif
 		}
 	}	
+}
 
+void turnDownLed(void)
+{
+	for (int x=0;x<LED_NUM;x++)
+	{
+		ledColorChange[x].blueChange=0;
+		LED_Color[x].blue=0;
+	}
 }
 
 //MP3播放函数
@@ -296,7 +296,7 @@ void changeMusicValue(unsigned char i)
 //Timer设置函数
 void timerSet(int minutes)
 {
-	TimerMetro.interval((unsigned long)minutes*60*1000);
+	timerMetro.interval((unsigned long)minutes*60*1000);
 	TIMER_FLAG=1;
 }
 void timerChangeMusic(unsigned char music)
@@ -322,7 +322,7 @@ int carInit(struct carCon *car1)
 	pinMode(8,INPUT);			//IR接收口
 	Serial.begin(115200);		//设置串口波特率
 	strip.begin();
-	strip.show(); // Initialize all pixels to 'off'
+	strip.show(); 					// Initialize all pixels to 'off'
 	PCICR=0x01;
 	PCMSK0=0x01;               	//使能第0组引脚变化中断
 #ifdef DEBUG
@@ -337,8 +337,6 @@ int carInit(struct carCon *car1)
 
 unsigned char getCmd(unsigned char *serialcmd)
 {
-//	int buttonState=0;
-//	int cmdNum=0;
 #ifdef DEBUG
 	Serial.print("cmd0:  ");
 	Serial.println(serialcmd[0],HEX);
@@ -366,13 +364,13 @@ unsigned char getCmd(unsigned char *serialcmd)
 		case MP3_MUSIC:changeMusic(serialCmd[1]);return SOUND_CHANGE;break;
 		case MP3_VALUE:changeMusicValue((serialCmd[1]*30)/100);return SOUND_CHANGE;break;
 
-		case LEDCONTROL:LED_Control=serialCmd[1];return LEDCONTROL;break;
+		case LEDCONTROL:ledControl=serialCmd[1];return LEDCONTROL;break;
 		case LEDCOLOR:
 		for (int i=0;i<LED_NUM;i++)
 		{
-			if (((LED_Control>>i)&(0x01))==1)
+			if (((ledControl>>i)&(0x01))==1)
 			{
-				ledColor[i]=constrain(serialCmd[1], 0, 6);
+				ledColor[i]=constrain(serialCmd[1], 0, 7);
 			}
 		}		
 		return LEDCOLOR;break;
@@ -483,7 +481,7 @@ unsigned char getIR(unsigned char position)
 {
 	unsigned int irValune=0;
 	irValune=analogRead(position);
-	if (irValune>BLACKVALUE)
+	if (irValune>blackValue)
 	{
 #ifdef DEBUGIR
 		Serial.print(position);Serial.print(":   ");
@@ -516,18 +514,18 @@ void send40KHz()
 
 ISR(PCINT0_vect) //PB0引脚变化中断
 {
-	IR_count++;
+	irCount++;
 }
 
 unsigned char getSwitch()
 {
-	IR_count=0;
+	irCount=0;
 	for (unsigned char i=0;i<20;i++)
 	{
 		send40KHz();
 		delayMicroseconds(200);
 	}
-	if (IR_count>20)
+	if (irCount>20)
 	{
 		return HIGH;
 	}
@@ -552,12 +550,20 @@ void loop(void)
 	}
 		switch (CMD)
 		{
+			case END:
+			if (CMD_FLAG)
+			{
+				mp3_stop ();
+				stop();
+				turnDownLed();
+			}
 			case LEDTIME:
 			break;
 			case LINE:
 			if (CMD_FLAG)
 			{
 				LINE_FLAG=1;
+				CMD_FLAG=0;
 			}
 			case FORWARD :
 			if (CMD_FLAG)
@@ -712,7 +718,7 @@ void loop(void)
 			case SET_IR_THRESHOLD:
 			if (CMD_FLAG)
 			{
-				BLACKVALUE=serialCmd[1]*10;CMD_FLAG=0;
+				blackValue=serialCmd[1]*10;CMD_FLAG=0;
 #ifdef DEBUG
 				Serial.println("SET_IR_THRESHOLD");
 #endif
@@ -730,15 +736,15 @@ void loop(void)
 		}
 	if (sensorMetro.check()== 1)
 	{
-		sensorState.BTN=getSwitch();
-		sensorState.COLOR[0]=getIR(LLEFT);
-		sensorState.COLOR[1]=getIR(LEFT);
-		sensorState.COLOR[2]=getIR(MID);
-		sensorState.COLOR[3]=getIR(RIGHT);
-		sensorState.COLOR[4]=getIR(RRIGHT);
-		if (sensorState.BTN_pre!=sensorState.BTN)
+		sensorState.btn=getSwitch();
+		sensorState.color[0]=getIR(LLEFT);
+		sensorState.color[1]=getIR(LEFT);
+		sensorState.color[2]=getIR(MID);
+		sensorState.color[3]=getIR(RIGHT);
+		sensorState.color[4]=getIR(RRIGHT);
+		if (sensorState.btnPre!=sensorState.btn)
 		{
-			switch (sensorState.BTN)
+			switch (sensorState.btn)
 			{
 				case HIGH:
 
@@ -759,11 +765,11 @@ void loop(void)
 				break;
 				default:break;
 			}
-			sensorState.BTN_pre=sensorState.BTN;
+			sensorState.btnPre=sensorState.btn;
 		}
-		if (sensorState.COLOR_pre[0]!=sensorState.COLOR[0])
+		if (sensorState.colorPre[0]!=sensorState.color[0])
 		{
-			switch (sensorState.COLOR[0])
+			switch (sensorState.color[0])
 			{
 				case HIGH:
 #ifdef DEBUG
@@ -783,11 +789,11 @@ void loop(void)
 				break;
 				default:break;
 			}
-			sensorState.COLOR_pre[0]=sensorState.COLOR[0];
+			sensorState.colorPre[0]=sensorState.color[0];
 		}
-		if (sensorState.COLOR_pre[1]!=sensorState.COLOR[1])
+		if (sensorState.colorPre[1]!=sensorState.color[1])
 		{
-			switch (sensorState.COLOR[1])
+			switch (sensorState.color[1])
 			{
 				case HIGH:
 #ifdef DEBUG
@@ -807,11 +813,11 @@ void loop(void)
 				break;
 				default:break;
 			}
-			sensorState.COLOR_pre[1]=sensorState.COLOR[1];
+			sensorState.colorPre[1]=sensorState.color[1];
 		}
-		if (sensorState.COLOR_pre[2]!=sensorState.COLOR[2])
+		if (sensorState.colorPre[2]!=sensorState.color[2])
 		{
-			switch (sensorState.COLOR[2])
+			switch (sensorState.color[2])
 			{
 				case HIGH:
 #ifdef DEBUG
@@ -831,11 +837,11 @@ void loop(void)
 				break;
 				default:break;
 			}
-			sensorState.COLOR_pre[2]=sensorState.COLOR[2];
+			sensorState.colorPre[2]=sensorState.color[2];
 		}
-		if (sensorState.COLOR_pre[3]!=sensorState.COLOR[3])
+		if (sensorState.colorPre[3]!=sensorState.color[3])
 		{
-			switch (sensorState.COLOR[3])
+			switch (sensorState.color[3])
 			{
 				case HIGH:
 #ifdef DEBUG
@@ -855,11 +861,11 @@ void loop(void)
 				break;
 				default:break;
 			}
-			sensorState.COLOR_pre[3]=sensorState.COLOR[3];
+			sensorState.colorPre[3]=sensorState.color[3];
 		}
-		if (sensorState.COLOR_pre[4]!=sensorState.COLOR[4])
+		if (sensorState.colorPre[4]!=sensorState.color[4])
 		{
-			switch (sensorState.COLOR[4])
+			switch (sensorState.color[4])
 			{
 				case HIGH:
 #ifdef DEBUG
@@ -879,10 +885,10 @@ void loop(void)
 				break;
 				default:break;
 			}
-			sensorState.COLOR_pre[4]=sensorState.COLOR[4];
+			sensorState.colorPre[4]=sensorState.color[4];
 		}
 	}
-	if (TimerMetro.check() == 1)
+	if (timerMetro.check() == 1)
 	{
 		if (TIMER_FLAG)
 		{
@@ -890,7 +896,7 @@ void loop(void)
 			TIMER_FLAG=0;
 		}
 	}
-	if (ACCMetro.check() == 1)
+	if (accMetro.check() == 1)
 	{
 		if (ACC_FLAG)
 		{
@@ -898,7 +904,7 @@ void loop(void)
 			else ACC_FLAG=0;
 		}
 	}
-	if (DECMetro.check() == 1)
+	if (decMetro.check() == 1)
 	{
 		if (DEC_FLAG)
 		{
@@ -908,38 +914,38 @@ void loop(void)
 	}
 	for (int x;x<LED_NUM;x++)
 	{
-		if (LEDMetro[x].check()==1)
+		if (ledMetro[x].check()==1)
 		{
-			if (	(LED_Color_Change[x].REDChange>0&&LED_Color[x].RED<ConstColor[ledColor[x]].RED)	||
-					(LED_Color_Change[x].REDChange<0&&LED_Color[x].RED>ConstColor[ledColor[x]].RED)	)
+			if (	(ledColorChange[x].redChange>0&&LED_Color[x].red<constColor[ledColor[x]].red)	||
+					(ledColorChange[x].redChange<0&&LED_Color[x].red>constColor[ledColor[x]].red)	)
 			{
-				a[0] = LED_Color[x].RED+LED_Color_Change[x].REDChange;
-				LED_Color[x].RED = constrain(a[0], 0, 255);
+				a[0] = LED_Color[x].red+ledColorChange[x].redChange;
+				LED_Color[x].red = constrain(a[0], 0, 25500);
 #ifdef DEBUGLEDSTRIP
 			Serial.print("LED RED");
 			Serial.print(x);
 			Serial.print(" ");
-			Serial.println(LED_Color[x].RED);
+			Serial.println(LED_Color[x].red);
 #endif
 			}
-			if (	(LED_Color_Change[x].GREENChange>0&&LED_Color[x].GREEN<ConstColor[ledColor[x]].GREEN)	||
-					(LED_Color_Change[x].GREENChange<0&&LED_Color[x].GREEN>ConstColor[ledColor[x]].GREEN)	)
+			if (	(ledColorChange[x].greenChange>0&&LED_Color[x].green<constColor[ledColor[x]].green)	||
+					(ledColorChange[x].greenChange<0&&LED_Color[x].green>constColor[ledColor[x]].green)	)
 			{					
-				a[1]= LED_Color[x].GREEN+LED_Color_Change[x].GREENChange;
-				LED_Color[x].GREEN = constrain(a[1], 0, 255);
+				a[1]= LED_Color[x].green+ledColorChange[x].greenChange;
+				LED_Color[x].green = constrain(a[1], 0, 25500);
 #ifdef DEBUGLEDSTRIP
-			Serial.print("LED GREEN");
+			Serial.print("LED green");
 			Serial.print(x);
 			Serial.print(" ");
-			Serial.println(LED_Color_Change[x].GREENChange);
-			Serial.println(LED_Color[x].GREEN);
+			Serial.println(ledColorChange[x].greenChange);
+			Serial.println(LED_Color[x].green);
 #endif
 			}
-			if (	(LED_Color_Change[x].BLUEChange>0&&LED_Color[x].BLUE<ConstColor[ledColor[x]].BLUE)	||
-					(LED_Color_Change[x].BLUEChange<0&&LED_Color[x].BLUE>ConstColor[ledColor[x]].BLUE)	)
+			if (	(ledColorChange[x].blueChange>0&&LED_Color[x].blue<constColor[ledColor[x]].blue)	||
+					(ledColorChange[x].blueChange<0&&LED_Color[x].blue>constColor[ledColor[x]].blue)	)
 			{
-				a[2] = LED_Color[x].BLUE+LED_Color_Change[x].BLUEChange;
-				LED_Color[x].BLUE = constrain(a[2], 0, 255);
+				a[2] = LED_Color[x].blue+ledColorChange[x].blueChange;
+				LED_Color[x].blue = constrain(a[2], 0, 25500);
 			}
 			
 		}
